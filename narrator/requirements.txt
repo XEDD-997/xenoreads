@@ -1,0 +1,9 @@
+# Install PyTorch (CPU) first:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+firebase-admin>=6.5
+requests>=2.31
+numpy
+soundfile>=0.12
+kokoro>=0.9.4
+imageio-ffmpeg>=0.5
+trafilatura>=2.0
+faster-whisper>=1.1

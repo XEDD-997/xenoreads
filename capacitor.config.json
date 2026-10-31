@@ -1,0 +1,8 @@
+{
+  "appId": "com.xedd.xenoreads",
+  "appName": "Xenoreads",
+  "webDir": "web",
+  "backgroundColor": "#11192C",
+  "android": { "backgroundColor": "#11192C" },
+  "plugins": { "CapacitorHttp": { "enabled": false } }
+}

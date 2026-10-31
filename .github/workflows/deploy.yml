@@ -1,0 +1,70 @@
+name: Deploy app
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['narrator/**', 'Narrator.bat', 'README.md', 'android-overrides/**', '.github/workflows/android.yml', '.github/workflows/narrator.yml']
+  schedule:
+    - cron: '41 21 * * 0'   # weekly catalog refresh (Monday 02:41 Maldives time)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick catalog week
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore catalog
+        id: catalog
+        uses: actions/cache@v4
+        with:
+          path: web/catalog
+          key: catalog-${{ steps.week.outputs.week }}
+          restore-keys: catalog-
+
+      - uses: actions/setup-python@v5
+        if: steps.catalog.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Build catalog (LibriVox + Gutenberg)
+        if: steps.catalog.outputs.cache-hit != 'true'
+        run: |
+          pip install requests
+          if python tools/build_catalog.py "$RUNNER_TEMP/catalog"; then
+            rm -rf web/catalog && mv "$RUNNER_TEMP/catalog" web/catalog
+          else
+            echo "::warning::Catalog build failed; keeping the previous catalog."
+          fi
+
+      - name: Write app config and rules
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+        run: node tools/write_config.mjs --rules
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy to Firebase
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx -y firebase-tools@15 deploy --only hosting,firestore,storage --project "$PROJECT_ID" --non-interactive --force
+          rm -f "$RUNNER_TEMP/sa.json"
+          echo "Live at https://$PROJECT_ID.web.app" >> "$GITHUB_STEP_SUMMARY"

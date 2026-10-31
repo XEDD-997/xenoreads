@@ -1,0 +1,65 @@
+name: Narrator
+
+# Turns queued books and articles into audio with synced text.
+# Runs every 3 hours, or instantly when the app starts it (Settings > GitHub token).
+# When your free Actions minutes run out, run Narrator.bat on your PC instead;
+# both use the same queue and never work on the same book at once.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 */3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: narrator
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      work: ${{ steps.queue.outputs.work }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q firebase-admin requests
+      - id: queue
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: python narrator/narrator.py check
+
+  narrate:
+    needs: check
+    if: needs.check.outputs.work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: narrator/requirements.txt
+      - name: Cache voice and speech models
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+          key: models-v1
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r narrator/requirements.txt
+      - name: Narrate
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: python narrator/narrator.py work --max-minutes 320 --worker github-actions
