@@ -92,52 +92,6 @@ function hsl2rgb(h, s, l) {
   const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
 }
-export function paletteFromSeed(seed) {
-  const h = hashHue(seed || 'x');
-  return [hsl2rgb(h, 48, 46), hsl2rgb((h + 40) % 360, 55, 52), hsl2rgb((h + 200) % 360, 40, 42)];
-}
-
-const paletteCache = new Map();
-/** Pull three moody colours from a cover image; falls back to a seeded palette. */
-export function extractPalette(src, seed) {
-  if (!src) return Promise.resolve(paletteFromSeed(seed));
-  if (paletteCache.has(src)) return Promise.resolve(paletteCache.get(src));
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
-    const done = (p) => { paletteCache.set(src, p); resolve(p); };
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas'); c.width = 24; c.height = 36;
-        const x = c.getContext('2d', { willReadFrequently: true });
-        x.drawImage(img, 0, 0, 24, 36);
-        const d = x.getImageData(0, 0, 24, 36).data;
-        const buckets = new Map();
-        for (let i = 0; i < d.length; i += 4) {
-          const r = d[i], g = d[i + 1], b = d[i + 2];
-          const max = Math.max(r, g, b), min = Math.min(r, g, b);
-          const sat = max ? (max - min) / max : 0, lum = (max + min) / 2;
-          if (lum < 28 || lum > 235) continue;
-          const key = `${r >> 5},${g >> 5},${b >> 5}`;
-          const e = buckets.get(key) || { r: 0, g: 0, b: 0, n: 0, w: 0 };
-          e.r += r; e.g += g; e.b += b; e.n++; e.w += 1 + sat * 3;
-          buckets.set(key, e);
-        }
-        const top = [...buckets.values()].sort((a, b) => b.w - a.w).slice(0, 6)
-          .map((e) => [e.r / e.n, e.g / e.n, e.b / e.n].map(Math.round));
-        if (top.length < 2) return done(paletteFromSeed(seed));
-        while (top.length < 3) top.push(top[0]);
-        done([top[0], top[1], top[top.length > 3 ? 3 : 2]]);
-      } catch { done(paletteFromSeed(seed)); }
-    };
-    img.onerror = () => done(paletteFromSeed(seed));
-    img.src = src;
-  });
-}
-export function applyAmbient(p, target = document.documentElement) {
-  p.forEach((c, i) => target.style.setProperty(`--amb-${i + 1}`, c.join(' ')));
-}
 
 /* ---------- Covers ---------- */
 export function coverHTML(book, opts = {}) {

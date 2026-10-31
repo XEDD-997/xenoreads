@@ -3,12 +3,12 @@
 
 import * as store from './store.js';
 import * as offline from './offline.js';
-import { $, $$, icon, coverHTML, fmtTime, toast, sheet, haptic, extractPalette, applyAmbient, esc } from './ui.js';
+import { $, $$, icon, coverHTML, fmtTime, toast, sheet, haptic, esc } from './ui.js';
 
 const SPEEDS = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 const st = {
   book: null, ci: 0, lines: [], si: -1, playing: false, rate: store.settings().speed || 1,
-  open: false, follow: true, sleepAt: 0, sleepEndOfChapter: false, lastSave: 0, palette: null,
+  open: false, follow: true, sleepAt: 0, sleepEndOfChapter: false, lastSave: 0,
 };
 const listeners = new Set();
 export const onChange = (f) => { listeners.add(f); return () => listeners.delete(f); };
@@ -137,7 +137,6 @@ export async function open(book, { chapter, pos, autoplay = true, show = true } 
     if (st.book && st.book.kind !== 'speech' && book.kind === 'speech') AudioEngine.stop();
     st.book = book;
     await loadChapter(chapter || 0, pos || 0);
-    themeFor(book);
   } else if (chapter != null && chapter !== st.ci) {
     await loadChapter(chapter, pos || 0);
   } else if (pos != null) {
@@ -148,12 +147,6 @@ export async function open(book, { chapter, pos, autoplay = true, show = true } 
   showMini();
 }
 
-async function themeFor(book) {
-  st.palette = await extractPalette(book.cover, `${book.title}|${book.author}`);
-  applyAmbient(st.palette, $('#player'));
-  applyAmbient(st.palette);
-}
-export const palette = () => st.palette;
 
 /* ======================= Transport ======================= */
 

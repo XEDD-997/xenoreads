@@ -8,11 +8,9 @@ import * as offline from './offline.js';
 import * as narrate from './narrate.js';
 import {
   $, html, raw, render, icon, coverHTML, fmtDuration, fmtTime, greeting, toast, sheet,
-  extractPalette, applyAmbient, debounce, esc,
+  debounce, esc,
 } from './ui.js';
 
-const DEFAULT_AMBIENT = [[84, 104, 196], [222, 146, 62], [58, 126, 168]];
-export function resetAmbient() { applyAmbient(player.palette() || DEFAULT_AMBIENT); }
 
 /* ---------- Shared bits ---------- */
 
@@ -68,7 +66,6 @@ export function signIn(view) {
 
 export async function home(view, user) {
   await catalog.load();
-  resetAmbient();
   const draw = () => {
     const progress = store.get('progress').filter((p) => !p.finished).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const hero = progress[0];
@@ -144,7 +141,6 @@ function startCard() {
 
 export async function explore(view, params) {
   await catalog.load();
-  resetAmbient();
   let q = params.get('q') || '', cat = params.has('c') ? +params.get('c') : -1, kind = params.get('k') || 'all', limit = 60;
   render(view, html`
     <div class="wrap">
@@ -202,7 +198,6 @@ export async function book(view, key) {
       render(view, html`<div class="wrap"><div class="empty"><p class="h2">This book isn’t in your catalog</p><p>It may have been removed. Search for it again.</p><a class="btn" href="#/explore">Explore books</a></div></div>`);
       return;
     }
-    extractPalette(b.cover, `${b.title}|${b.author}`).then(applyAmbient);
     const w = b.work || {};
     const isArticle = key.startsWith('ar-');
     const narr = isArticle ? b.narration : b.gbNarr || b.narration;
@@ -332,7 +327,6 @@ function confirmSheet(question, label, fn) {
 
 export async function library(view, params) {
   await catalog.load();
-  resetAmbient();
   let tab = params.get('t') || 'shelf';
   const draw = async () => {
     let body;
@@ -404,7 +398,6 @@ export function articleSheet(prefill = {}) {
 
 export async function saved(view) {
   await catalog.load();
-  resetAmbient();
   const draw = () => {
     const marks = store.get('bookmarks').sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const groups = new Map();
@@ -439,7 +432,6 @@ export async function saved(view) {
 /* ---------- Settings ---------- */
 
 export async function settings(view, user) {
-  resetAmbient();
   const s = store.settings();
   const used = await offline.usage();
   render(view, html`
@@ -466,7 +458,7 @@ export async function settings(view, user) {
           <button data-th="night" class="${s.theme === 'night' ? 'on' : ''}">Night</button>
         </div>
         <p class="small" style="margin:0 0 4px">Auto follows your phone: cream by day, navy at night.</p>
-        <label class="switch"><span>Reduce effects<span class="small" style="display:block">Turns off moving light and glass blur on older phones.</span></span><input type="checkbox" data-k="lite" ${s.lite ? 'checked' : ''}></label>
+        <label class="switch"><span>Reduce effects<span class="small" style="display:block">Turns off the glass blur behind the tab bar on older phones.</span></span><input type="checkbox" data-k="lite" ${s.lite ? 'checked' : ''}></label>
       </section>
       <section class="section">
         <p class="group-title">Storage</p>
