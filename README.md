@@ -21,6 +21,7 @@ Use your personal Google account for Firebase, and your GitHub account `XEDD-997
 1. Go to <https://console.firebase.google.com>, choose **Create a project**, name it `xenoreads`. Google Analytics isn't needed.
 2. Stay on the free **Spark** plan. Don't upgrade, and skip *Storage*; the app doesn't use it.
 3. **Authentication** → *Get started* → enable **Email/Password**. Then *Users* → **Add user** with your email and a password. This is the only account that can open the app.
+   Then lock sign-ups: *Authentication* → *Settings* → *User actions* → untick **Enable create (sign-up)** and save. Also turn on **Email enumeration protection** on the same page. Now nobody can create an account, and the security rules only let your email read or write anything.
 4. **Firestore Database** → *Create database* → **production mode** → location **asia-south1 (Mumbai)**, closest to the Maldives.
 5. **Project settings** (gear icon) → *General* → *Your apps* → the web icon `</>` → nickname `Xenoreads` → **Register app**. Copy the `firebaseConfig = { ... }` block that appears.
 6. **Project settings** → *Service accounts* → **Generate new private key**. A `.json` file downloads. Keep it private.

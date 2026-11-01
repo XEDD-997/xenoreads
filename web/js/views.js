@@ -38,13 +38,14 @@ const asWork = (d) => catalog.get(d.key || d.id) || { key: d.key || d.id, title:
 
 export function signIn(view) {
   document.body.classList.add('signed-out');
+  const deniedMsg = store.wasDenied() ? 'This account doesn\u2019t have access to Xenoreads.' : '';
   render(view, html`
     <div class="signin"><form class="signin-card" autocomplete="on">
       <h1 class="h-display">Xenoreads</h1>
       <p class="lead">Your private listening room for the classics, and anything you want read aloud.</p>
       <label class="field"><span>Email</span><input class="input" type="email" name="email" autocomplete="username" required></label>
       <label class="field"><span>Password</span><input class="input" type="password" name="password" autocomplete="current-password" required></label>
-      <p class="err" aria-live="polite"></p>
+      <p class="err" aria-live="polite">${deniedMsg}</p>
       <button class="btn primary" style="width:100%">Sign in</button>
     </form></div>`);
   const form = view.querySelector('form');

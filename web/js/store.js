@@ -14,6 +14,8 @@ const listeners = new Map(COLS.map((c) => [c, new Set()]));
 const cache = new Map(COLS.map((c) => [c, []]));
 let backend = null;
 let userCb = () => {};
+let denied = false;
+export const wasDenied = () => { const d = denied; denied = false; return d; };
 
 export const isDemo = () => !config || !config.firebase || !config.firebase.apiKey;
 export const hostingBase = () => {
@@ -82,7 +84,11 @@ async function firebaseBackend() {
       A.onAuthStateChanged(auth, (u) => {
         unsubs.forEach((f) => f()); unsubs = [];
         if (u) {
-          COLS.forEach((c) => unsubs.push(F.onSnapshot(F.collection(db, c), (snap) => emit(c, snap.docs.map(norm)), () => emit(c, []))));
+          COLS.forEach((c) => unsubs.push(F.onSnapshot(F.collection(db, c), (snap) => emit(c, snap.docs.map(norm)), (err) => {
+            emit(c, []);
+            // Signed in, but the security rules don't allow this account: lock it out.
+            if (err?.code === 'permission-denied' && auth.currentUser) { denied = true; A.signOut(auth); }
+          })));
         } else COLS.forEach((c) => emit(c, []));
         userCb(u ? { email: u.email, uid: u.uid } : null);
       });
