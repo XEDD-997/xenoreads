@@ -224,7 +224,7 @@ export async function book(view, key) {
     if (isArticle && narr && !narr.chapters?.length && narr.status !== 'queued' && narr.status !== 'working') {
       actions.push(html`<button class="btn" data-narrate-article>${raw(icon('sparkle'))}Narrate in HD</button>`);
     }
-    if (b.kind === 'audio' && b.chapters.length) {
+    if (store.isNative() && b.kind === 'audio' && b.chapters.length) {
       actions.push(dlp ? html`<button class="btn" data-cancel>${raw(icon('download'))}${Math.round((dlp.done / dlp.total) * 100)}%</button>`
         : dl ? html`<button class="btn" data-undl>${raw(icon('check'))}Downloaded</button>`
           : html`<button class="btn" data-dl>${raw(icon('download'))}Download</button>`);
@@ -328,6 +328,7 @@ function confirmSheet(question, label, fn) {
 export async function library(view, params) {
   await catalog.load();
   let tab = params.get('t') || 'shelf';
+  if (tab === 'downloads' && !store.isNative()) tab = 'shelf';
   const draw = async () => {
     let body;
     if (tab === 'shelf') {
@@ -354,7 +355,7 @@ export async function library(view, params) {
         <header class="topbar"><h1 class="h1">Library</h1><button class="btn small" data-add>${raw(icon('plus'))}Article</button></header>
         <div class="seg" role="tablist">
           <button data-t="shelf" class="${tab === 'shelf' ? 'on' : ''}">Saved</button>
-          <button data-t="downloads" class="${tab === 'downloads' ? 'on' : ''}">Downloads</button>
+          ${store.isNative() ? html`<button data-t="downloads" class="${tab === 'downloads' ? 'on' : ''}">Downloads</button>` : ''}
           <button data-t="narrations" class="${tab === 'narrations' ? 'on' : ''}">Narrations</button>
         </div>
         ${body}
@@ -447,7 +448,7 @@ export async function settings(view, user) {
         <label class="switch"><span>Read article links on this device<span class="small" style="display:block">Sends the link to a reader service (r.jina.ai) so articles open instantly.</span></span><input type="checkbox" data-k="readerProxy" ${s.readerProxy ? 'checked' : ''}></label>
         <p class="small" style="margin:18px 0 10px">Start narrations instantly. Without this, new requests start on the next scheduled run (every three hours) or when your PC narrator is running.</p>
         <label class="field"><span>GitHub repository</span><input class="input" data-k="ghRepo" placeholder="XEDD-997/xenoreads" value="${s.ghRepo}"></label>
-        <label class="field"><span>GitHub token (fine-grained, Actions: read and write)</span><input class="input" data-k="ghToken" type="password" placeholder="github_pat_…" value="${s.ghToken}" autocomplete="off"></label>
+        <label class="field"><span>GitHub token (fine-grained: Actions and Contents, read and write)</span><input class="input" data-k="ghToken" type="password" placeholder="github_pat_…" value="${s.ghToken}" autocomplete="off"></label>
         <p class="small" style="margin:0">Stored only on this device.</p>
       </section>
       <section class="section">
@@ -460,10 +461,10 @@ export async function settings(view, user) {
         <p class="small" style="margin:0 0 4px">Auto follows your phone: cream by day, navy at night.</p>
         <label class="switch"><span>Reduce effects<span class="small" style="display:block">Turns off the glass blur behind the tab bar on older phones.</span></span><input type="checkbox" data-k="lite" ${s.lite ? 'checked' : ''}></label>
       </section>
-      <section class="section">
+      ${store.isNative() ? html`<section class="section">
         <p class="group-title">Storage</p>
         <div class="item" style="grid-template-columns:1fr auto"><div><p class="it">${offline.fmtBytes(used)}</p><p class="small" style="margin:0">Downloads and app data on this device</p></div><a class="btn small" href="#/library?t=downloads">Manage</a></div>
-      </section>
+      </section>` : ''}
       <p class="small" style="margin-top:36px;text-align:center">Xenoreads. Recordings from LibriVox, texts from Project Gutenberg, narration by Kokoro.</p>
     </div>`);
   view.querySelector('[data-back]').onclick = () => history.back();

@@ -18,7 +18,7 @@ writeFileSync('web/js/config.js', `// Generated at build time.\nexport default $
 
 const owner = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
 if (owner) {
-  for (const f of ['firestore.rules', 'storage.rules']) writeFileSync(f, readFileSync(f, 'utf8').replaceAll('__OWNER_EMAIL__', owner));
+  for (const f of ['firestore.rules']) writeFileSync(f, readFileSync(f, 'utf8').replaceAll('__OWNER_EMAIL__', owner));
 } else if (process.argv.includes('--rules')) {
   console.error('OWNER_EMAIL secret is missing; refusing to deploy rules that lock everyone out.'); process.exit(1);
 }
@@ -27,6 +27,6 @@ const build = `${Date.now().toString(36)}-${(process.env.GITHUB_SHA || 'local').
 writeFileSync('web/sw.js', readFileSync('web/sw.js', 'utf8').replace('__BUILD__', build));
 
 if (process.env.GITHUB_ENV) {
-  appendFileSync(process.env.GITHUB_ENV, `PROJECT_ID=${cfg.projectId}\nSTORAGE_BUCKET=${cfg.storageBucket || ''}\n`);
+  appendFileSync(process.env.GITHUB_ENV, `PROJECT_ID=${cfg.projectId}\n`);
 }
 console.log(`Config written for project ${cfg.projectId} (build ${build}).`);

@@ -50,6 +50,7 @@ function localBackend() {
     },
     async add(c, data) { const id = Math.random().toString(36).slice(2, 12); await this.set(c, id, data, false); return id; },
     async remove(c, id) { const all = read(c); delete all[id]; write(c, all); publish(c); },
+    async getDoc() { return null; },
     async signIn() { userCb({ email: 'demo@xenoreads', demo: true }); },
     async signOut() { userCb(null); },
     now: () => Date.now(),
@@ -89,6 +90,11 @@ async function firebaseBackend() {
     set: (c, id, data, merge = true) => F.setDoc(F.doc(db, c, id), data, { merge }),
     async add(c, data) { const r = await F.addDoc(F.collection(db, c), data); return r.id; },
     remove: (c, id) => F.deleteDoc(F.doc(db, c, id)),
+    async getDoc(path) {
+      // Served from the on-device cache when offline (after it has been read once).
+      try { const d = await F.getDoc(F.doc(db, path)); return d.exists() ? d.data() : null; }
+      catch { try { const d = await F.getDocFromCache(F.doc(db, path)); return d.exists() ? d.data() : null; } catch { return null; } }
+    },
     signIn: (email, pw) => A.signInWithEmailAndPassword(auth, email, pw),
     signOut: () => A.signOut(auth),
     now: () => Date.now(),
@@ -104,6 +110,8 @@ export async function start(onUser) {
 export const set = (c, id, data, merge) => backend.set(c, id, { ...data, updatedAt: Date.now() }, merge);
 export const add = (c, data) => backend.add(c, { ...data, createdAt: Date.now(), updatedAt: Date.now() });
 export const remove = (c, id) => backend.remove(c, id);
+export const getDoc = (path) => backend.getDoc(path);
+export const isNative = () => !!window.Capacitor?.isNativePlatform?.();
 export const signIn = (e, p) => backend.signIn(e, p);
 export const signOut = () => backend.signOut();
 

@@ -1,6 +1,8 @@
 // Offline downloads: chapter audio + read-along text saved in Cache Storage.
 // Playback uses blob URLs, so seeking works offline without range-request tricks.
 
+import * as store from './store.js';
+
 const CACHE = 'xr-media-v1';
 const IDX = 'xr.downloads';
 const subs = new Set();
@@ -37,6 +39,11 @@ export async function playableUrl(url) {
 
 export async function getJSON(url) {
   if (!url) return null;
+  // Read-along timings saved by the narrator live in Firestore (fs:<doc path>).
+  if (url.startsWith('fs:')) {
+    const d = await store.getDoc(url.slice(3));
+    try { return d?.j ? JSON.parse(d.j) : null; } catch { return null; }
+  }
   try {
     if ('caches' in window) {
       const c = await caches.open(CACHE);
@@ -73,7 +80,13 @@ export async function download(book) {
   const c = await caches.open(CACHE);
   const ctrl = new AbortController();
   const files = [];
-  book.chapters.forEach((ch) => { if (ch.url) files.push(ch.url); if (ch.sync) files.push(ch.sync); });
+  const syncDocs = [];
+  book.chapters.forEach((ch) => {
+    if (ch.url) files.push(ch.url);
+    if (ch.sync?.startsWith('fs:')) syncDocs.push(ch.sync); else if (ch.sync) files.push(ch.sync);
+  });
+  // Reading the timings once keeps them in Firestore's offline cache.
+  await Promise.all(syncDocs.map((u) => getJSON(u)));
   const state = { done: 0, total: files.length, abort: () => ctrl.abort(), error: null };
   active.set(book.key, state); notify();
   let bytes = 0;

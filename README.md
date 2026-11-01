@@ -2,40 +2,41 @@
 
 A private audiobook app for your own listening: classics read by real people (LibriVox), any other public-domain book or article narrated by an AI voice (Kokoro), offline downloads, bookmarks, and a read-along screen that follows the voice sentence by sentence, like lyrics in a music app.
 
-- **Web app** on Firebase Hosting: install it on iPhone, Android or PC from the browser.
-- **Android app** (APK) built automatically by GitHub Actions, with lock-screen controls, background playback and a 120 Hz display mode.
+- **Web app** on Firebase Hosting: install it on iPhone, Android or PC from the browser. Streams only.
+- **Android app** (APK) built automatically by GitHub Actions, with offline downloads, lock-screen controls, background playback and a 120 Hz display mode.
+
+**Completely free, no card needed.** Firebase's free Spark plan holds your account, library, progress, bookmarks and read-along text, and hosts the website. Narrated audio is published to your GitHub repo's Releases, which are free with no size cap.
 - **Narrator** that turns books and articles into audio with synced text. It runs on GitHub Actions, or on your PC when your free minutes run out.
 
 Day theme is cream paper with navy ink; Night theme is navy. Auto follows your phone.
 
 ---
 
-## Setup (about 20 minutes, once)
+## Setup (about 15 minutes, once)
 
 Use your personal Google account for Firebase, and your GitHub account `XEDD-997`.
 
 ### 1. Firebase project
 
 1. Go to <https://console.firebase.google.com>, choose **Create a project**, name it `xenoreads`. Google Analytics isn't needed.
-2. **Upgrade to the Blaze plan** (bottom-left, *Spark → Upgrade*). Cloud Storage requires it since February 2026. A personal library stays inside the no-cost quota; set a budget alert of $1 when asked so you're warned if anything changes.
+2. Stay on the free **Spark** plan. Don't upgrade, and skip *Storage*; the app doesn't use it.
 3. **Authentication** → *Get started* → enable **Email/Password**. Then *Users* → **Add user** with your email and a password. This is the only account that can open the app.
 4. **Firestore Database** → *Create database* → **production mode** → location **asia-south1 (Mumbai)**, closest to the Maldives.
-5. **Storage** → *Get started* → location **us-central1**. The no-cost Storage quota only applies to US regions.
-6. **Project settings** (gear icon) → *General* → *Your apps* → the web icon `</>` → nickname `Xenoreads` → **Register app**. Copy the `firebaseConfig = { ... }` block that appears.
-7. **Project settings** → *Service accounts* → **Generate new private key**. A `.json` file downloads. Keep it private.
-8. Give that service account permission to deploy: open <https://console.cloud.google.com/iam-admin/iam>, pick the `xenoreads` project, click the pencil next to `firebase-adminsdk-…@…iam.gserviceaccount.com` and **add roles** `Firebase Admin` and `Service Usage Consumer`. Save.
+5. **Project settings** (gear icon) → *General* → *Your apps* → the web icon `</>` → nickname `Xenoreads` → **Register app**. Copy the `firebaseConfig = { ... }` block that appears.
+6. **Project settings** → *Service accounts* → **Generate new private key**. A `.json` file downloads. Keep it private.
+7. Give that service account permission to deploy: open <https://console.cloud.google.com/iam-admin/iam>, pick the `xenoreads` project, click the pencil next to `firebase-adminsdk-…@…iam.gserviceaccount.com` and **add roles** `Firebase Admin` and `Service Usage Consumer`. Save.
 
 ### 2. GitHub repository and secrets
 
-1. Create a repository named `xenoreads` (it already contains this code if Claude pushed it for you).
-   - **Public** repos get unlimited free Actions minutes, which is best for narration. Your secrets stay hidden either way.
-   - **Private** repos get a monthly quota (a few long novels' worth), after which you use the PC narrator.
+1. Create a **public** repository named `xenoreads` (it already contains this code if Claude pushed it for you).
+   - It must be public so the app can stream the narrated audio from its Releases, and public repos get unlimited free Actions minutes for narration.
+   - Your secrets, Firebase data, library and bookmarks stay private. What's public is the code and the narrated audio files: public-domain books are fine; an article you narrate in HD becomes a downloadable file there too, so use the device voice for anything you'd rather not publish.
 2. Repository → *Settings* → *Secrets and variables* → *Actions* → **New repository secret**, five times:
 
 | Secret | Value |
 |---|---|
-| `FIREBASE_CONFIG` | The `firebaseConfig = { ... }` block from step 1.6, pasted as-is |
-| `FIREBASE_SERVICE_ACCOUNT` | The full contents of the `.json` key file from step 1.7 |
+| `FIREBASE_CONFIG` | The `firebaseConfig = { ... }` block from step 1.5, pasted as-is |
+| `FIREBASE_SERVICE_ACCOUNT` | The full contents of the `.json` key file from step 1.6 |
 | `OWNER_EMAIL` | The email you added in step 1.3 |
 | `ANDROID_KEYSTORE_B64` | From `android-signing-secrets.txt` (Claude sent you this file) |
 | `ANDROID_KEYSTORE_PASSWORD` | From the same file |
@@ -59,12 +60,13 @@ Sign in with the email and password from step 1.3.
 - **Library → Article**: paste a link (or the text). It plays right away with your phone's voice; tap **Narrate in HD** for the AI voice with synced text. On Android you can also share a link from Chrome straight to Xenoreads.
 - On LibriVox books, **Make read-along** transcribes the recording so the text follows the human narrator too.
 
-**When it runs.** The Narrator workflow checks for new requests every 3 hours. To start instantly, create a fine-grained GitHub token (GitHub → *Settings → Developer settings → Fine-grained tokens*), limited to the `xenoreads` repository with **Actions: Read and write**, and paste it with the repo name in the app's **Settings**. The token stays on that device only.
+**When it runs.** The Narrator workflow checks for new requests every 3 hours. To start instantly, create a fine-grained GitHub token (GitHub → *Settings → Developer settings → Fine-grained tokens*), limited to the `xenoreads` repository, with **Actions: Read and write** and **Contents: Read and write**. Paste it with the repo name (`XEDD-997/xenoreads`) in the app's **Settings**; it stays on that device only. The same token works for the PC narrator.
 
 **On your PC (when Actions minutes run out).**
 1. Install Python 3.12 if you don't have it: `winget install Python.Python.3.12`
 2. Put the service-account `.json` file in the `narrator` folder, renamed to `service-account.json`.
-3. Double-click **Narrator.bat**. The first run installs everything (about 1 GB). Then it picks up anything you queue in the app. Close the window any time; it resumes from the last finished chapter.
+3. Save the GitHub token from above in the `narrator` folder as `github-token.txt`. The narrator uses it to publish audio to your repo's Releases.
+4. Double-click **Narrator.bat**. The first run installs everything (about 1 GB). Then it picks up anything you queue in the app. Close the window any time; it resumes from the last finished chapter.
 
 GitHub Actions and your PC share one queue and never work on the same book at once.
 
@@ -83,9 +85,11 @@ android-overrides/   app icon and the 120 Hz Android activity
 .github/workflows/   deploy.yml, android.yml, narrator.yml
 ```
 
-**Data** (Firestore, readable only by your account): `shelf` (saved books), `progress` (where you stopped), `bookmarks`, `narrations` (AI narrations, articles, read-along jobs). Audio and read-along files live in Storage under `narrations/`.
+**Data** (Firestore, readable only by your account): `shelf` (saved books), `progress` (where you stopped), `bookmarks`, `narrations` (AI narrations, articles, read-along jobs), with read-along timings in `narrations/{book}/sync/`. Narrated audio is in the repo's Releases, one pre-release per book (`audio-gb-1342` and so on); delete a release to remove that audio.
 
 **Catalog**: rebuilt every Monday from LibriVox and Project Gutenberg into `web/catalog/` on Firebase Hosting.
+
+**Free limits** (far above one person's use): Firestore 50,000 reads and 20,000 writes a day; Hosting 10 GB stored and 360 MB served a day. LibriVox audio streams straight from archive.org and narrated audio from GitHub, so neither counts against Firebase.
 
 **Preview without Firebase**: serve the `web` folder (for example `python -m http.server` inside it) and open it. The app runs in preview mode with a sample chapter and keeps data on that device.
 

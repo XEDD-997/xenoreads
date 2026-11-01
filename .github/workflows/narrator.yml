@@ -11,7 +11,7 @@ on:
     - cron: '23 */3 * * *'
 
 permissions:
-  contents: read
+  contents: write   # publishes narration audio as release files
 
 concurrency:
   group: narrator
@@ -32,7 +32,6 @@ jobs:
       - id: queue
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
         run: python narrator/narrator.py check
 
   narrate:
@@ -61,5 +60,5 @@ jobs:
       - name: Narrate
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python narrator/narrator.py work --max-minutes 320 --worker github-actions

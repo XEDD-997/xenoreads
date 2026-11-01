@@ -4,7 +4,8 @@ web/catalog/
 narrator/.venv/
 narrator/service-account.json
 service-account.json
-narrator/bucket.txt
+narrator/github-token.txt
+github-token.txt
 __pycache__/
 *.jks
 *.keystore

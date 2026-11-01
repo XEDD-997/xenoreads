@@ -1,14 +1,15 @@
 """Xenoreads narrator.
 
-Picks up jobs from Firestore `narrations/` and writes audio + read-along text to
-Firebase Storage. Runs the same way on GitHub Actions and on your PC; a lease on
-each job stops two machines working on the same book. Progress is saved after
-every chapter, so a run that stops (time limit, PC shutdown) resumes later.
+Picks up jobs from Firestore `narrations/` and publishes:
+  - audio  -> GitHub Releases of your xenoreads repo (free, no size cap)
+  - read-along timings -> Firestore narrations/{key}/sync/{chapter}
+Runs the same way on GitHub Actions and on your PC; a lease on each job stops two
+machines working on the same book. Progress is saved after every chapter, so a run
+that stops (time limit, PC shutdown) resumes later.
 
   python narrator.py check                 -> prints whether any job is waiting
   python narrator.py work [--loop] [--max-minutes 320]
   python narrator.py add gb 1342 [--voice bm_george]
-  python narrator.py cors                  -> allow the app to download files (run once)
 
 Job kinds:
   gb  Gutenberg book  -> Kokoro narration (m4a) + sentence sync per chapter
@@ -20,11 +21,11 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 import time
-import uuid
 from pathlib import Path
 from urllib.parse import quote
 
@@ -52,57 +53,18 @@ def load_credentials():
     for p in [HERE / "service-account.json", HERE.parent / "service-account.json"]:
         if p.exists():
             return json.loads(p.read_text(encoding="utf-8"))
-    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if gac and Path(gac).exists():
-        return json.loads(Path(gac).read_text(encoding="utf-8"))
     sys.exit("No service account found. Put service-account.json next to narrator.py "
              "or set FIREBASE_SERVICE_ACCOUNT.")
-
-
-def bucket_name(project):
-    if os.environ.get("FIREBASE_STORAGE_BUCKET"):
-        return os.environ["FIREBASE_STORAGE_BUCKET"]
-    cfg = os.environ.get("FIREBASE_CONFIG", "")
-    m = re.search(r"storageBucket['\"]?\s*:\s*['\"]([^'\"]+)", cfg)
-    if m:
-        return m.group(1)
-    f = HERE / "bucket.txt"
-    if f.exists():
-        return f.read_text().strip()
-    return None
 
 
 class Firebase:
     def __init__(self):
         import firebase_admin
-        from firebase_admin import credentials, firestore, storage
+        from firebase_admin import credentials, firestore
 
-        cred_info = load_credentials()
-        self.project = cred_info["project_id"]
-        name = bucket_name(self.project)
-        app = firebase_admin.initialize_app(credentials.Certificate(cred_info), {"storageBucket": name} if name else {})
+        app = firebase_admin.initialize_app(credentials.Certificate(load_credentials()))
         self.fs = firestore
         self.db = firestore.client(app)
-        self._storage = storage
-        self._app = app
-        self._bucket = None
-        self._bucket_name = name
-
-    @property
-    def bucket(self):
-        if self._bucket is None:
-            names = [self._bucket_name] if self._bucket_name else [f"{self.project}.firebasestorage.app", f"{self.project}.appspot.com"]
-            for n in names:
-                b = self._storage.bucket(n, app=self._app)
-                try:
-                    if b.exists():
-                        self._bucket = b
-                        break
-                except Exception as e:  # noqa: BLE001
-                    log(f"Bucket {n}: {e}")
-            if self._bucket is None:
-                sys.exit("Couldn't find your Firebase Storage bucket. Set FIREBASE_STORAGE_BUCKET.")
-        return self._bucket
 
     def jobs(self):
         col = self.db.collection("narrations")
@@ -127,32 +89,85 @@ class Firebase:
 
         return tx_claim(self.db.transaction())
 
-    def upload(self, local, path, content_type):
-        blob = self.bucket.blob(path)
-        token = str(uuid.uuid4())
-        blob.metadata = {"firebaseStorageDownloadTokens": token}
-        blob.cache_control = "public, max-age=31536000, immutable"
-        blob.upload_from_filename(str(local), content_type=content_type)
-        return f"https://firebasestorage.googleapis.com/v0/b/{self.bucket.name}/o/{quote(path, safe='')}?alt=media&token={token}"
+    def save_sync(self, key, name, rows):
+        """Store read-along timings in Firestore; the app reads them as fs:<path>."""
+        doc = self.db.collection("narrations").document(key).collection("sync").document(name)
+        doc.set({"j": json.dumps({"v": 1, "s": rows}, ensure_ascii=False, separators=(",", ":"))})
+        return f"fs:narrations/{key}/sync/{name}"
 
-    def upload_json(self, obj, path):
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-        try:
-            return self.upload(f.name, path, "application/json")
-        finally:
-            os.unlink(f.name)
 
-    def read_json(self, path):
-        blob = self.bucket.blob(path)
-        if not blob.exists():
-            return None
-        return json.loads(blob.download_as_text(encoding="utf-8"))
+# ---------------------------------------------------------------- GitHub Releases (audio)
+def github_repo():
+    if os.environ.get("GITHUB_REPOSITORY"):
+        return os.environ["GITHUB_REPOSITORY"]
+    f = HERE / "github-repo.txt"
+    if f.exists() and f.read_text().strip():
+        return f.read_text().strip()
+    try:
+        url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=HERE, capture_output=True, text=True).stdout
+        m = re.search(r"github\.com[:/]([^/]+/[^/.\s]+)", url)
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    sys.exit("Couldn't tell which GitHub repo to publish audio to. Put owner/repo in narrator/github-repo.txt.")
 
-    def set_cors(self):
-        b = self.bucket
-        b.cors = [{"origin": ["*"], "method": ["GET", "HEAD"], "responseHeader": ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"], "maxAgeSeconds": 3600}]
-        b.patch()
+
+def github_token():
+    if os.environ.get("GITHUB_TOKEN"):
+        return os.environ["GITHUB_TOKEN"].strip()
+    f = HERE / "github-token.txt"
+    if f.exists() and f.read_text().strip():
+        return f.read_text().strip()
+    sys.exit("No GitHub token. Put a fine-grained token with Contents: read and write "
+             "for your xenoreads repo in narrator/github-token.txt.")
+
+
+class Releases:
+    """One pre-release per narration (tag audio-<key>); each chapter is an asset."""
+
+    def __init__(self):
+        self.repo = github_repo()
+        self.s = requests.Session()
+        self.s.headers.update({**UA, "Authorization": f"Bearer {github_token()}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+        self.api = f"https://api.github.com/repos/{self.repo}"
+        self._cache = {}
+
+    def _check(self, r, what):
+        if r.status_code >= 300:
+            raise RuntimeError(f"GitHub {what} failed ({r.status_code}): {r.text[:200]}")
+        return r
+
+    def release(self, key, title):
+        if key in self._cache:
+            return self._cache[key]
+        tag = f"audio-{key}"
+        r = self.s.get(f"{self.api}/releases/tags/{tag}", timeout=60)
+        if r.status_code == 404:
+            body = {"tag_name": tag, "name": f"Audio: {title}"[:120], "prerelease": True, "make_latest": "false",
+                    "body": "Narration files used by the Xenoreads app."}
+            r = self.s.post(f"{self.api}/releases", json=body, timeout=60)
+            if r.status_code == 422:  # created meanwhile by another worker
+                r = self.s.get(f"{self.api}/releases/tags/{tag}", timeout=60)
+        rel = self._check(r, "release").json()
+        self._cache[key] = rel
+        return rel
+
+    def upload(self, key, title, local, name, content_type="audio/mp4"):
+        rel = self.release(key, title)
+        for a in self.s.get(f"{self.api}/releases/{rel['id']}/assets?per_page=100", timeout=60).json() or []:
+            if a.get("name") == name:  # left over from an interrupted run
+                self.s.delete(f"{self.api}/releases/assets/{a['id']}", timeout=60)
+        url = f"https://uploads.github.com/repos/{self.repo}/releases/{rel['id']}/assets?name={quote(name)}"
+        with open(local, "rb") as f:
+            data = f.read()
+        for attempt in range(4):
+            r = self.s.post(url, data=data, headers={"Content-Type": content_type}, timeout=600)
+            if r.status_code < 300:
+                return r.json()["browser_download_url"]
+            if attempt == 3:
+                self._check(r, "upload")
+            time.sleep(5 * (attempt + 1))
 
 
 # ---------------------------------------------------------------- Lease keeper
@@ -291,10 +306,7 @@ def fetch_article(url):
 
 # ---------------------------------------------------------------- Jobs
 def plan_for(fb, key, d):
-    path = f"narrations/{key}/plan.json"
-    plan = fb.read_json(path)
-    if plan:
-        return plan
+    """Split the text into chapters. Deterministic, so a resumed run gets the same plan."""
     if d["kind"] == "gb":
         text = fetch_gutenberg(d["gbId"])
         chapters = textproc.chapters_from_book(text)
@@ -303,14 +315,12 @@ def plan_for(fb, key, d):
         if not text and d.get("url"):
             t2, text, author = fetch_article(d["url"])
             title = t2 or title
-            fb.db.collection("narrations").document(key).update({"title": title or d.get("title", ""), "text": text, "author": author})
+            fb.db.collection("narrations").document(key).update({"title": title or d.get("title", ""), "text": text[:600000], "author": author})
         chapters = textproc.chapters_from_article(title, text)
-    plan = {"chapters": chapters}
-    fb.upload_json(plan, path)
-    return plan
+    return {"chapters": chapters}
 
 
-def run_tts_job(fb, ref, d, deadline):
+def run_tts_job(fb, gh, ref, d, deadline):
     key = ref.id
     voice = d.get("voice") or "af_heart"
     plan = plan_for(fb, key, d)
@@ -327,9 +337,9 @@ def run_tts_job(fb, ref, d, deadline):
             started = time.time()
             out = Path(tmp) / f"{i:03d}.m4a"
             sync, dur = narrate_chapter(ch, voice, out)
-            base = f"narrations/{key}/{voice}/{i:03d}"
-            url = fb.upload(out, f"{base}.m4a", "audio/mp4")
-            sync_url = fb.upload_json(sync, f"{base}.json")
+            name = f"{voice}-{i:03d}"
+            url = gh.upload(key, d.get("title") or key, out, f"{name}.m4a")
+            sync_url = fb.save_sync(key, name, sync["s"])
             done.append({"title": ch["title"], "url": url, "sync": sync_url, "dur": dur})
             ref.update({"chapters": done, "chaptersDone": len(done)})
             log(f"  chapter {i + 1}/{len(chapters)} ({dur / 60:.1f} min audio) in {(time.time() - started) / 60:.1f} min")
@@ -376,7 +386,7 @@ def run_align_job(fb, ref, d, deadline):
                         last_end, cur = cur[-1].end, []
             if cur:
                 rows.append([round(cur[0].start, 2), round(cur[-1].end, 2), "".join(x.word for x in cur).strip(), 0])
-            sync_url = fb.upload_json({"v": 1, "s": rows}, f"narrations/{ref.id}/sync/{i:03d}.json")
+            sync_url = fb.save_sync(ref.id, f"{i:03d}", rows)
             done.append({"title": s.get("title", ""), "sync": sync_url})
             ref.update({"chapters": done, "chaptersDone": len(done)})
             log(f"  section {i + 1}/{len(sections)} synced ({len(rows)} sentences)")
@@ -388,10 +398,8 @@ def work(args):
     fb = Firebase()
     worker = args.worker or f"{socket.gethostname()}-{os.getpid()}"
     deadline = time.time() + args.max_minutes * 60 if args.max_minutes else float("inf")
-    try:
-        fb.set_cors()
-    except Exception as e:  # noqa: BLE001
-        log("Couldn't set Storage CORS (downloads in the app may fail):", e)
+    gh = Releases()
+    log(f"Publishing audio to github.com/{gh.repo}")
     log(f"Narrator {worker} ready.")
     while True:
         jobs = fb.jobs()
@@ -412,7 +420,7 @@ def work(args):
                 if d.get("kind") == "lv":
                     finished = run_align_job(fb, ref, d, deadline)
                 else:
-                    finished = run_tts_job(fb, ref, d, deadline)
+                    finished = run_tts_job(fb, gh, ref, d, deadline)
             if not finished:
                 ref.update({"leaseUntil": 0})
                 return
@@ -466,7 +474,6 @@ def main():
     a.add_argument("kind", choices=["gb"])
     a.add_argument("id")
     a.add_argument("--voice", default="af_heart")
-    sub.add_parser("cors")
     args = ap.parse_args()
     if args.cmd == "work":
         work(args)
@@ -474,9 +481,6 @@ def main():
         check(args)
     elif args.cmd == "add":
         add(args)
-    elif args.cmd == "cors":
-        Firebase().set_cors()
-        log("Storage CORS set.")
 
 
 if __name__ == "__main__":
