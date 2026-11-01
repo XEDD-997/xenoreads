@@ -183,7 +183,7 @@ def main():
         if g:
             labels += (g.get("subjects") or []) + (g.get("bookshelves") or [])
             pop = int(g.get("download_count") or 0)
-        title = re.sub(r"\s*\((version \d+|solo|abridged)[^)]*\)\s*", " ", b.get("title") or "").strip()
+        title = re.sub(r"\s*\((version \d+|solo|abridged|dramatic reading)[^)]*\)\s*", " ", b.get("title") or "", flags=re.I).strip()
         works[f"lv-{lid}"] = [title, author, cat_mask(labels, pop > 15000), lid, gid, secs, ia, pop, len(sections)]
         shards_lv.setdefault(lid % 128, {})[lid] = {
             "d": clean(b.get("description"))[:1600],

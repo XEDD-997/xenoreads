@@ -22,7 +22,9 @@ export const lvCover = (ia) => (ia ? `https://archive.org/services/img/${ia}` : 
 export const gbCover = (id) => (id ? `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg` : '');
 
 function makeWork(row) {
-  const [title, author, mask, lvId, gbId, dur, ia, pop, n] = row;
+  const [rawTitle, author, mask, lvId, gbId, dur, ia, pop, n] = row;
+  // LibriVox numbers repeat recordings, e.g. "(Version 8)"; the app shows one per title.
+  const title = String(rawTitle).replace(/\s*\((version \d+|solo|abridged|dramatic reading)[^)]*\)/gi, '').trim();
   const cats = [];
   for (let i = 0; i < CATEGORIES.length; i++) if (mask & (1 << i)) cats.push(i);
   return {
