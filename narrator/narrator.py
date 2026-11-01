@@ -170,6 +170,18 @@ class Releases:
             time.sleep(5 * (attempt + 1))
 
 
+def safe_update(ref, data):
+    """Update a job; False if it was cancelled (deleted) in the app."""
+    try:
+        ref.update(data)
+        return True
+    except Exception as e:  # noqa: BLE001
+        if "not found" in str(e).lower() or "no document" in str(e).lower():
+            log("Job was cancelled in the app.")
+            return False
+        raise
+
+
 # ---------------------------------------------------------------- Lease keeper
 class Lease:
     def __init__(self, ref, worker):
@@ -333,6 +345,9 @@ def run_tts_job(fb, gh, ref, d, deadline):
             if time.time() > deadline:
                 log("Time budget reached; will resume next run.")
                 return False
+            if not ref.get().exists:
+                log("Cancelled in the app; stopping.")
+                return True
             ch = chapters[i]
             started = time.time()
             out = Path(tmp) / f"{i:03d}.m4a"
@@ -341,9 +356,10 @@ def run_tts_job(fb, gh, ref, d, deadline):
             url = gh.upload(key, d.get("title") or key, out, f"{name}.m4a")
             sync_url = fb.save_sync(key, name, sync["s"])
             done.append({"title": ch["title"], "url": url, "sync": sync_url, "dur": dur})
-            ref.update({"chapters": done, "chaptersDone": len(done)})
+            if not safe_update(ref, {"chapters": done, "chaptersDone": len(done)}):
+                return True
             log(f"  chapter {i + 1}/{len(chapters)} ({dur / 60:.1f} min audio) in {(time.time() - started) / 60:.1f} min")
-    ref.update({"status": "ready", "leaseUntil": 0})
+    safe_update(ref, {"status": "ready", "leaseUntil": 0})
     return True
 
 
@@ -366,6 +382,9 @@ def run_align_job(fb, ref, d, deadline):
         for i in range(len(done), len(sections)):
             if time.time() > deadline:
                 return False
+            if not ref.get().exists:
+                log("Cancelled in the app; stopping.")
+                return True
             s = sections[i]
             mp3 = Path(tmp) / f"{i}.mp3"
             with requests.get(s["url"], headers=UA, stream=True, timeout=120) as r:
@@ -388,9 +407,10 @@ def run_align_job(fb, ref, d, deadline):
                 rows.append([round(cur[0].start, 2), round(cur[-1].end, 2), "".join(x.word for x in cur).strip(), 0])
             sync_url = fb.save_sync(ref.id, f"{i:03d}", rows)
             done.append({"title": s.get("title", ""), "sync": sync_url})
-            ref.update({"chapters": done, "chaptersDone": len(done)})
+            if not safe_update(ref, {"chapters": done, "chaptersDone": len(done)}):
+                return True
             log(f"  section {i + 1}/{len(sections)} synced ({len(rows)} sentences)")
-    ref.update({"status": "ready", "leaseUntil": 0})
+    safe_update(ref, {"status": "ready", "leaseUntil": 0})
     return True
 
 
@@ -422,11 +442,11 @@ def work(args):
                 else:
                     finished = run_tts_job(fb, gh, ref, d, deadline)
             if not finished:
-                ref.update({"leaseUntil": 0})
+                safe_update(ref, {"leaseUntil": 0})
                 return
         except Exception as e:  # noqa: BLE001
             log("Job failed:", repr(e))
-            ref.update({"status": "error", "error": str(e)[:300], "leaseUntil": 0})
+            safe_update(ref, {"status": "error", "error": str(e)[:300], "leaseUntil": 0})
         if time.time() > deadline:
             return
 

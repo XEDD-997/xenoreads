@@ -5,6 +5,7 @@ import { $, $$, hydrateIcons, toast } from './ui.js';
 import './player.js';
 
 const view = $('#view');
+const scroller = $('#app');
 let user = null;
 let dispose = null;
 const scrolls = new Map();
@@ -43,7 +44,7 @@ function parse() {
 async function route() {
   if (!user) return;
   const r = parse();
-  scrolls.set(currentPath, window.scrollY);
+  scrolls.set(currentPath, scroller.scrollTop);
   if (typeof dispose === 'function') dispose();
   dispose = null;
   document.body.classList.remove('signed-out');
@@ -58,7 +59,7 @@ async function route() {
       default: dispose = await views.home(view, user);
     }
     const back = scrolls.get(r.path);
-    window.scrollTo(0, r.name === 'book' ? 0 : back || 0);
+    scroller.scrollTop = r.name === 'book' ? 0 : back || 0;
   };
   currentPath = r.path;
   if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -77,7 +78,7 @@ window.addEventListener('hashchange', route);
 $('#tabs').addEventListener('click', (e) => {
   const a = e.target.closest('a');
   if (a && location.hash.startsWith(a.getAttribute('href').split('?')[0]) && parse().name === a.dataset.tab) {
-    e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    e.preventDefault(); scroller.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
 

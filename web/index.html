@@ -30,15 +30,16 @@
     <main id="view" class="view" tabindex="-1"></main>
   </div>
 
-  <button id="mini" class="mini" hidden aria-label="Open player">
+  <div id="mini" class="mini" hidden role="button" tabindex="0" aria-label="Open player">
     <span class="mini-progress"><span></span></span>
     <span class="mini-cover"></span>
     <span class="mini-text">
       <span class="mini-title"></span>
       <span class="mini-line"></span>
     </span>
-    <span class="mini-play icon-btn" role="button" aria-label="Play"></span>
-  </button>
+    <button class="mini-play icon-btn" aria-label="Play"></button>
+    <button class="mini-close icon-btn" aria-label="Close player"></button>
+  </div>
 
   <nav id="tabs" class="tabs" aria-label="Main">
     <a href="#/home" data-tab="home"><span class="ico" data-icon="home"></span><span>Home</span></a>

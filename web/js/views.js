@@ -80,7 +80,7 @@ export function signIn(view) {
 export async function home(view, user) {
   await catalog.load();
   const draw = () => {
-    const progress = store.get('progress').filter((p) => !p.finished).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const progress = store.get('progress').filter((p) => !p.finished && !p.dismissed).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const hero = progress[0];
     const rest = progress.slice(1, 12).map(asWork);
     const shelf = store.get('shelf').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map(asWork);
@@ -114,9 +114,20 @@ export async function home(view, user) {
       if (books.playable(b)) player.open(b); else location.hash = `#/book/${e.currentTarget.dataset.resume}`;
     });
     view.querySelector('[data-demo]')?.addEventListener('click', async () => player.open(await books.resolve(books.DEMO_KEY)));
+    view.querySelector('[data-dismiss]')?.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dismissProgress(e.currentTarget.dataset.dismiss);
+    });
   };
   draw();
   return [store.watch('progress', draw), store.watch('shelf', draw), store.watch('narrations', draw)].reduce((a, f) => () => { a(); f(); }, () => {});
+}
+
+/** Take a book out of Continue listening; its position is kept if you play it again. */
+export async function dismissProgress(key) {
+  if (player.state().book?.key === key) player.closeMini();
+  await store.set('progress', key, { dismissed: true });
+  toast('Removed from Continue listening.', { label: 'Undo', run: () => store.set('progress', key, { dismissed: false }) });
 }
 
 function resumeCard(p) {
@@ -124,7 +135,8 @@ function resumeCard(p) {
   const where = p.chapters > 1 ? `Chapter ${p.chapter + 1} of ${p.chapters}` : (p.chapterTitle || '');
   return html`
     <a class="resume" href="#/book/${p.id}">
-      ${raw(coverHTML({ ...w, cover: p.cover || w.cover, title: p.title, author: p.author }, { eager: true }))}
+      <button class="icon-btn resume-x" data-dismiss="${p.id}" aria-label="Remove from Continue listening">${raw(icon('close'))}</button>
+      ${raw(coverHTML({ ...w, cover: p.cover || w.cover, title: p.title, author: p.author }, { eager: true, sharp: true }))}
       <div class="meta">
         <p class="sub">${where}</p>
         <div class="rt">${p.title}</div>
@@ -247,11 +259,11 @@ export async function book(view, key) {
     const notes = [];
     if (narr && ['queued', 'working', 'error'].includes(narr.status)) {
       const frac = narr.chaptersTotal ? narr.chaptersDone / narr.chaptersTotal : 0;
-      notes.push(html`<div class="note"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span>${narrate.statusText(narr)}</span>${narr.status === 'error' ? html`<button class="btn small" data-retry="${narr.id}">Try again</button>` : ''}</div>${narr.status === 'working' ? html`<div class="progress" style="margin-top:10px"><span style="transform:scaleX(${frac})"></span></div>` : ''}${narr.status !== 'error' ? html`<p class="small" style="margin:8px 0 0">Finished chapters play as soon as they’re ready.</p>` : ''}</div>`);
+      notes.push(html`<div class="note"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span>${narrate.statusText(narr)}</span><span style="display:flex;gap:8px">${narr.status === 'error' ? html`<button class="btn small" data-retry="${narr.id}">Try again</button>` : ''}<button class="btn ghost small" data-cancel-narr="${narr.id}">${narr.status === 'error' ? 'Remove' : 'Cancel'}</button></span></div>${narr.status === 'working' ? html`<div class="progress" style="margin-top:10px"><span style="transform:scaleX(${frac})"></span></div>` : ''}${narr.status !== 'error' ? html`<p class="small" style="margin:8px 0 0">Finished chapters play as soon as they’re ready.</p>` : ''}</div>`);
     }
     if (b.source === 'lv') {
       if (!align) notes.push(html`<div class="note" style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span>Want the text in sync with this recording?</span><button class="btn small" data-align>Make read-along</button></div>`);
-      else if (align.status !== 'ready') notes.push(html`<div class="note">${narrate.statusText(align)}</div>`);
+      else if (align.status !== 'ready') notes.push(html`<div class="note" style="display:flex;justify-content:space-between;gap:12px;align-items:center"><span>${narrate.statusText(align)}</span><span style="display:flex;gap:8px">${align.status === 'error' ? html`<button class="btn small" data-retry="${align.id}">Try again</button>` : ''}<button class="btn ghost small" data-cancel-narr="${align.id}">${align.status === 'error' ? 'Remove' : 'Cancel'}</button></span></div>`);
     }
     if (b.kind === 'pending' && !narr && !w.gbId && !isArticle) notes.push(html`<div class="note">No recording or text source is available for this book.</div>`);
 
@@ -269,12 +281,13 @@ export async function book(view, key) {
         <header class="topbar"><button class="icon-btn" data-back aria-label="Back">${raw(icon('back'))}</button>
           ${isArticle ? html`<button class="icon-btn" data-del-article aria-label="Delete article">${raw(icon('trash'))}</button>` : ''}</header>
         <div class="book-hero">
-          ${raw(coverHTML(b, { eager: true }))}
+          ${raw(coverHTML(b, { eager: true, sharp: true }))}
           <div>
             <h1 class="h-display">${b.title}</h1>
             <p class="by">${b.author || ''}</p>
             <div class="facts">${facts}</div>
             <div class="row-actions">${actions}</div>
+            ${prog && !prog.finished && !prog.dismissed && prog.frac > 0 ? html`<button class="btn ghost small" data-dismiss-prog style="margin-top:10px;color:var(--muted)">Remove from Continue listening</button>` : ''}
           </div>
         </div>
         ${notes.length ? html`<div class="section" style="display:grid;gap:10px">${notes}</div>` : ''}
@@ -306,7 +319,13 @@ export async function book(view, key) {
     }));
     on('[data-narrate-article]', () => voiceSheet(async (voice) => { const k = await narrate.narrateArticle(key, voice); toast(k ? 'Narration started.' : 'Queued for the narrator.'); }));
     on('[data-align]', async () => { const det = await catalog.detail(w); const k = await narrate.makeReadAlong(w, det.s || []); toast(k ? 'Read-along started.' : 'Queued for the narrator.'); });
-    on('[data-retry]', (e) => narrate.retry(store.find('narrations', e.currentTarget.dataset.retry)));
+    view.querySelectorAll('[data-retry]').forEach((n) => n.addEventListener('click', () => narrate.retry(store.find('narrations', n.dataset.retry))));
+    view.querySelectorAll('[data-cancel-narr]').forEach((n) => n.addEventListener('click', () => {
+      const job = store.find('narrations', n.dataset.cancelNarr);
+      const what = job?.kind === 'lv' ? 'the read-along text' : 'the AI narration';
+      confirmSheet(`Cancel ${what}?`, 'Cancel it', async () => { await store.remove('narrations', n.dataset.cancelNarr); toast('Cancelled.'); });
+    }));
+    on('[data-dismiss-prog]', () => dismissProgress(b.key));
     on('[data-del-article]', () => confirmSheet('Delete this article?', 'Delete', async () => { await store.remove('narrations', key); await store.remove('progress', key); location.hash = '#/library?t=narrations'; }));
     view.querySelector('.desc')?.addEventListener('click', (e) => e.currentTarget.classList.toggle('clamp'));
   };

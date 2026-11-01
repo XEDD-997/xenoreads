@@ -3,7 +3,8 @@
 
 import * as store from './store.js';
 import * as offline from './offline.js';
-import { $, $$, icon, coverHTML, fmtTime, toast, sheet, haptic, esc } from './ui.js';
+import * as narrate from './narrate.js';
+import { $, $$, icon, coverHTML, sharpenCovers, fmtTime, toast, sheet, haptic, esc } from './ui.js';
 
 const SPEEDS = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 const st = {
@@ -223,7 +224,7 @@ export function save(force = false) {
     title: b.title, author: b.author || '', cover: b.cover || '', chapter: st.ci,
     chapterTitle: b.chapters[st.ci]?.title || '', chapters: b.chapters.length,
     pos: Math.round(engine().time() * 10) / 10, snippet: line && !line.title ? line.t.slice(0, 280) : '',
-    frac: Math.round(overallFrac() * 1000) / 1000, finished: false,
+    frac: Math.round(overallFrac() * 1000) / 1000, finished: false, dismissed: false,
   }).catch(() => {});
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
@@ -278,15 +279,50 @@ function renderLines() {
   st.si = -1;
   measure();
   box.scrollTop = 0; scrollY = 0;
+  renderEmpty();
+}
+
+/* What the read-along area says when this chapter has no text yet. */
+function renderEmpty() {
   const empty = $('.lyrics-empty');
   const b = st.book;
-  if (!L.length && b) {
-    empty.hidden = false;
-    empty.innerHTML = b.source === 'lv'
-      ? `<p class="h2">No read-along text yet</p><p>Open this book’s page and choose “Make read-along” to get the text in sync with this recording.</p>`
-      : `<p class="h2">Loading the text…</p>`;
-  } else empty.hidden = true;
+  if (st.lines.length || !b) { empty.hidden = true; return; }
+  empty.hidden = false;
+  if (b.source !== 'lv') { empty.innerHTML = '<p class="h2">Loading the text\u2026</p>'; return; }
+  const job = store.find('narrations', `lv-${b.work?.lvId}`);
+  if (!job || job.status === 'error') {
+    empty.innerHTML = `<p class="h2">Read along with this recording</p><p>${job ? esc(narrate.statusText(job)) : 'The narrator can write out what\u2019s being said, in sync with the voice.'}</p><button class="btn primary" data-make-align style="margin-top:16px">${job ? 'Try again' : 'Make read-along'}</button>`;
+  } else if (job.status === 'ready') {
+    empty.innerHTML = '<p class="h2">No text for this chapter</p><p>This part of the recording has no matching text.</p>';
+  } else {
+    const done = job.chaptersDone || 0, total = job.chaptersTotal || b.chapters.length;
+    empty.innerHTML = `<p class="h2">Writing out this book\u2026</p><p>${done} of ${total} chapters are ready. Chapter ${st.ci + 1}\u2019s text appears here as soon as it\u2019s done; keep listening meanwhile.</p>`;
+  }
 }
+$('.lyrics-empty').addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-make-align]') || !st.book?.work) return;
+  const sections = st.book.chapters.map((c) => [c.title, c.url, c.dur || 0]);
+  const job = store.find('narrations', `lv-${st.book.work.lvId}`);
+  const kicked = job ? await narrate.retry(job) : await narrate.makeReadAlong(st.book.work, sections);
+  toast(kicked ? 'Read-along started.' : 'Queued. It starts on the next narrator run.');
+});
+
+// As the narrator finishes chapters, their text appears without reopening the book.
+store.watch('narrations', async () => {
+  const b = st.book;
+  if (!b || b.source !== 'lv') return;
+  const job = store.find('narrations', `lv-${b.work?.lvId}`);
+  (job?.chapters || []).forEach((c, i) => { if (c?.sync && b.chapters[i]) b.chapters[i].sync = c.sync; });
+  const ci = st.ci;
+  if (!st.lines.length && b.chapters[ci]?.sync) {
+    const lines = parseSync(await offline.getJSON(b.chapters[ci].sync));
+    if (st.book !== b || st.ci !== ci || st.lines.length || !lines.length) return;
+    st.lines = lines;
+    renderLines();
+    tick(true);
+    if (store.settings().view === 'read') { $('#player').classList.add('read'); updateViewTool(); requestAnimationFrame(() => { measure(); follow(true); }); }
+  } else if (!st.lines.length) renderEmpty();
+});
 function measure() { offsets = [...track.children].map((n) => [n.offsetTop, n.offsetHeight]); }
 new ResizeObserver(() => { measure(); follow(true); }).observe(box);
 
@@ -400,7 +436,7 @@ function updateMeta() {
   $('.pw-chapter').textContent = b.chapters[st.ci]?.title || '';
   $('.pm-title').textContent = b.title;
   $('.pm-author').textContent = b.author || '';
-  $('.player-cover').innerHTML = coverHTML(b, { eager: true });
+  $('.player-cover').innerHTML = coverHTML(b, { eager: true, sharp: true }); sharpenCovers($('.player-cover'));
   $('.mini-title').textContent = b.title;
   $('.mini-cover').innerHTML = coverHTML(b);
   $('.mini-line').textContent = b.chapters[st.ci]?.title || b.author || '';
@@ -548,8 +584,17 @@ player.addEventListener('click', (e) => {
 
 $('#mini').addEventListener('click', (e) => {
   if (e.target.closest('.mini-play')) { e.stopPropagation(); haptic(); toggle(); return; }
+  if (e.target.closest('.mini-close')) { e.stopPropagation(); closeMini(); return; }
   openSheet();
 });
+$('#mini').addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.id === 'mini') { e.preventDefault(); openSheet(); } });
+
+/** Stop playback and put the mini player away. The book stays in Continue listening. */
+export function closeMini() {
+  if (st.playing) pause(); else save(true);
+  $('#mini').hidden = true;
+  $('#mini').classList.remove('enter');
+}
 
 // Keyboard on desktop
 document.addEventListener('keydown', (e) => {
@@ -566,4 +611,5 @@ $$('#player [data-act]').forEach((b) => {
   if (map[b.dataset.act]) b.innerHTML = icon(map[b.dataset.act]);
 });
 $('.mini-play').innerHTML = icon('play');
+$('.mini-close').innerHTML = icon('close');
 $('[data-act="speed"]').textContent = `${String(st.rate).replace(/^0/, '')}×`;

@@ -62,7 +62,7 @@ export function html(strings, ...vals) {
   return { __raw: true, s: out };
 }
 export const raw = (s) => ({ __raw: true, s: String(s) });
-export function render(root, tpl) { root.innerHTML = tpl.s ?? tpl; hydrateIcons(root); return root; }
+export function render(root, tpl) { root.innerHTML = tpl.s ?? tpl; hydrateIcons(root); sharpenCovers(root); return root; }
 
 /* ---------- Time ---------- */
 export function fmtTime(sec) {
@@ -99,12 +99,55 @@ export function coverHTML(book, opts = {}) {
   const h = hashHue(seed);
   const [r, g, b] = hsl2rgb(h, 40, 22);
   const bg = `linear-gradient(160deg, hsl(${h} 42% 34%), hsl(${(h + 30) % 360} 46% 18%) 70%)`;
+  const ia = opts.sharp ? (book.ia || book.work?.ia || '') : '';
   const img = book.cover
-    ? `<img src="${esc(book.cover)}" alt="" loading="${opts.eager ? 'eager' : 'lazy'}" decoding="async" onload="this.classList.add('ok');this.previousElementSibling.style.opacity=0" onerror="this.remove()">`
+    ? `<img src="${esc(book.cover)}" alt="" loading="${opts.eager ? 'eager' : 'lazy'}" decoding="async"${ia ? ` data-ia="${esc(ia)}"` : ''} onload="this.classList.add('ok');this.parentNode.classList.add('has-img')" onerror="this.remove()">`
     : '';
   return `<div class="cover" style="--tint:${r} ${g} ${b};background:${bg}">` +
-    `<div class="gen" style="transition:opacity .3s"><div class="gt">${esc(book.title)}</div><div><div class="rule"></div><div class="ga">${esc(book.author || '')}</div></div></div>` +
+    `<div class="gen"><div class="gt">${esc(book.title)}</div><div><div class="rule"></div><div class="ga">${esc(book.author || '')}</div></div></div>` +
     `${img}${opts.extra || ''}</div>`;
+}
+
+/* LibriVox thumbnails are small; big views swap in the full artwork from archive.org. */
+const SHARP_KEY = 'xr.sharp';
+let sharpMap = null;
+const sharpPending = new Map();
+function sharpStore() {
+  if (!sharpMap) { try { sharpMap = JSON.parse(localStorage.getItem(SHARP_KEY) || '{}'); } catch { sharpMap = {}; } }
+  return sharpMap;
+}
+function sharpUrl(ia) {
+  const m = sharpStore();
+  if (ia in m) return Promise.resolve(m[ia]);
+  if (sharpPending.has(ia)) return sharpPending.get(ia);
+  const p = (async () => {
+    let url = '';
+    try {
+      const r = await fetch(`https://archive.org/metadata/${encodeURIComponent(ia)}/files`);
+      const files = (await r.json()).result || [];
+      const pics = files.filter((f) => /\.(jpe?g|png)$/i.test(f.name) && !/thumb|__ia_|spectrogram/i.test(f.name))
+        .map((f) => ({ name: f.name, size: +f.size || 0 }))
+        .filter((f) => f.size > 20000 && f.size < 6e6)
+        .sort((x, y) => y.size - x.size);
+      if (pics[0]) url = `https://archive.org/download/${encodeURIComponent(ia)}/${pics[0].name.split('/').map(encodeURIComponent).join('/')}`;
+    } catch { /* keep the thumbnail */ }
+    const map = sharpStore(); map[ia] = url;
+    try { localStorage.setItem(SHARP_KEY, JSON.stringify(map)); } catch { /* full */ }
+    sharpPending.delete(ia);
+    return url;
+  })();
+  sharpPending.set(ia, p);
+  return p;
+}
+export function sharpenCovers(root = document) {
+  root.querySelectorAll('img[data-ia]').forEach(async (img) => {
+    const url = await sharpUrl(img.dataset.ia);
+    if (!url || img.src === url) return;
+    const hi = new Image();
+    hi.decoding = 'async';
+    hi.onload = () => { img.src = url; };
+    hi.src = url;
+  });
 }
 
 /* ---------- Toast ---------- */
