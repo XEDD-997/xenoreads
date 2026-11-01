@@ -19,8 +19,6 @@ writeFileSync('web/js/config.js', `// Generated at build time.\nexport default $
 const owner = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
 if (owner) {
   for (const f of ['firestore.rules']) writeFileSync(f, readFileSync(f, 'utf8').replaceAll('__OWNER_EMAIL__', owner));
-} else if (process.argv.includes('--rules')) {
-  console.error('OWNER_EMAIL secret is missing; refusing to deploy rules that lock everyone out.'); process.exit(1);
 }
 
 const build = `${Date.now().toString(36)}-${(process.env.GITHUB_SHA || 'local').slice(0, 7)}`;

@@ -38,26 +38,38 @@ const asWork = (d) => catalog.get(d.key || d.id) || { key: d.key || d.id, title:
 
 export function signIn(view) {
   document.body.classList.add('signed-out');
-  const deniedMsg = store.wasDenied() ? 'This account doesn\u2019t have access to Xenoreads.' : '';
+  const denied = store.wasDenied();
   render(view, html`
-    <div class="signin"><form class="signin-card" autocomplete="on">
+    <div class="signin"><form class="signin-card" autocomplete="on" novalidate>
       <h1 class="h-display">Xenoreads</h1>
       <p class="lead">Your private listening room for the classics, and anything you want read aloud.</p>
       <label class="field"><span>Email</span><input class="input" type="email" name="email" autocomplete="username" required></label>
       <label class="field"><span>Password</span><input class="input" type="password" name="password" autocomplete="current-password" required></label>
-      <p class="err" aria-live="polite">${deniedMsg}</p>
-      <button class="btn primary" style="width:100%">Sign in</button>
+      <p class="err" aria-live="polite">${denied ? 'This account doesn’t have access to Xenoreads.' : ''}</p>
+      <button class="btn primary" style="width:100%" data-go>Sign in</button>
+      <div style="text-align:center;margin-top:16px"><button type="button" class="btn ghost small" data-reset>Forgot password?</button></div>
     </form></div>`);
   const form = view.querySelector('form');
+  const err = form.querySelector('.err');
+  form.querySelector('[data-reset]').addEventListener('click', async () => {
+    const email = form.email.value.trim();
+    if (!email) { err.textContent = 'Type your email first, then tap Forgot password.'; form.email.focus(); return; }
+    try { await store.resetPassword(email); err.textContent = ''; toast(`If ${email} has an account, a reset link is on its way.`); }
+    catch (e) { err.textContent = /network/.test(e.code || '') ? 'No connection. Try again when you’re online.' : 'That email address doesn’t look right.'; }
+  });
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const btn = form.querySelector('button'); btn.disabled = true;
-    try { await store.signIn(form.email.value.trim(), form.password.value); }
-    catch (err) {
-      const code = err.code || '';
-      form.querySelector('.err').textContent = /invalid|wrong|not-found|credential/.test(code)
-        ? 'That email and password don’t match. Check both and try again.'
-        : /network/.test(code) ? 'No connection. Connect to the internet to sign in the first time.' : `Sign-in failed (${code || err.message}).`;
+    const email = form.email.value.trim(), pw = form.password.value;
+    if (!email || !pw) { err.textContent = 'Enter your email and password.'; return; }
+    const btn = form.querySelector('[data-go]'); btn.disabled = true;
+    try { await store.signIn(email, pw); }
+    catch (ex) {
+      const code = ex.code || '';
+      err.textContent = /invalid-email/.test(code) ? 'That email address doesn’t look right.'
+        : /invalid|wrong|not-found|credential/.test(code) ? 'That email and password don’t match. Check both and try again.'
+        : /too-many-requests/.test(code) ? 'Too many tries. Wait a few minutes, or reset your password.'
+        : /network/.test(code) ? 'No connection. Connect to the internet to sign in the first time.'
+        : `Sign-in failed (${code || ex.message}).`;
       btn.disabled = false;
     }
   };

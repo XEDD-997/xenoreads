@@ -20,8 +20,8 @@ Use your personal Google account for Firebase, and your GitHub account `XEDD-997
 
 1. Go to <https://console.firebase.google.com>, choose **Create a project**, name it `xenoreads`. Google Analytics isn't needed.
 2. Stay on the free **Spark** plan. Don't upgrade, and skip *Storage*; the app doesn't use it.
-3. **Authentication** → *Get started* → enable **Email/Password**. Then *Users* → **Add user** with your email and a password. This is the only account that can open the app.
-   Then lock sign-ups: *Authentication* → *Settings* → *User actions* → untick **Enable create (sign-up)** and save. Also turn on **Email enumeration protection** on the same page. Now nobody can create an account, and the security rules only let your email read or write anything.
+3. **Authentication** → *Get started* → enable **Email/Password**. Then *Users* → **Add user** for yourself and for each family member (email and a password). Only these accounts can open the app; each person gets their own library, progress and bookmarks, and narrated books are shared.
+   Then lock sign-ups: *Authentication* → *Settings* → *User actions* → untick **Enable create (sign-up)** and save, and turn on **Email enumeration protection** on the same page. This only stops strangers from creating accounts; you can still add family under *Users* any time.
 4. **Firestore Database** → *Create database* → **production mode** → location **asia-south1 (Mumbai)**, closest to the Maldives.
 5. **Project settings** (gear icon) → *General* → *Your apps* → the web icon `</>` → nickname `Xenoreads` → **Register app**. Copy the `firebaseConfig = { ... }` block that appears.
 6. **Project settings** → *Service accounts* → **Generate new private key**. A `.json` file downloads. Keep it private.
@@ -32,13 +32,12 @@ Use your personal Google account for Firebase, and your GitHub account `XEDD-997
 1. Create a **public** repository named `xenoreads` (it already contains this code if Claude pushed it for you).
    - It must be public so the app can stream the narrated audio from its Releases, and public repos get unlimited free Actions minutes for narration.
    - Your secrets, Firebase data, library and bookmarks stay private. What's public is the code and the narrated audio files: public-domain books are fine; an article you narrate in HD becomes a downloadable file there too, so use the device voice for anything you'd rather not publish.
-2. Repository → *Settings* → *Secrets and variables* → *Actions* → **New repository secret**, five times:
+2. Repository → *Settings* → *Secrets and variables* → *Actions* → **New repository secret**, four times:
 
 | Secret | Value |
 |---|---|
 | `FIREBASE_CONFIG` | The `firebaseConfig = { ... }` block from step 1.5, pasted as-is |
 | `FIREBASE_SERVICE_ACCOUNT` | The full contents of the `.json` key file from step 1.6 |
-| `OWNER_EMAIL` | The email you added in step 1.3 |
 | `ANDROID_KEYSTORE_B64` | From `android-signing-secrets.txt` (Claude sent you this file) |
 | `ANDROID_KEYSTORE_PASSWORD` | From the same file |
 
@@ -86,7 +85,7 @@ android-overrides/   app icon and the 120 Hz Android activity
 .github/workflows/   deploy.yml, android.yml, narrator.yml
 ```
 
-**Data** (Firestore, readable only by your account): `shelf` (saved books), `progress` (where you stopped), `bookmarks`, `narrations` (AI narrations, articles, read-along jobs), with read-along timings in `narrations/{book}/sync/`. Narrated audio is in the repo's Releases, one pre-release per book (`audio-gb-1342` and so on); delete a release to remove that audio.
+**Data** (Firestore, readable only by accounts you add): per person under `users/{uid}/` — `shelf` (saved books), `progress` (where you stopped), `bookmarks`; shared — `narrations` (AI narrations, articles, read-along jobs), with read-along timings in `narrations/{book}/sync/`. Narrated audio is in the repo's Releases, one pre-release per book (`audio-gb-1342` and so on); delete a release to remove that audio.
 
 **Catalog**: rebuilt every Monday from LibriVox and Project Gutenberg into `web/catalog/` on Firebase Hosting.
 
@@ -96,6 +95,6 @@ android-overrides/   app icon and the 120 Hz Android activity
 
 ## Good to know
 
-- Everything in the catalog is public domain in the US (published 1930 or earlier, or released freely). Keep the app private: the security rules only let your account in.
+- Everything in the catalog is public domain in the US (published 1930 or earlier, or released freely). Keep the app private: only accounts you add in Firebase Authentication can get in.
 - GitHub pauses scheduled workflows in repositories with no activity for 60 days; any push or a manual run turns them back on.
 - If the narrator shows *Stopped* on a book, tap **Try again** on its page. The reason is shown next to it.

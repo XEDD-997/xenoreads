@@ -1,10 +1,11 @@
 // Data layer. Firebase when configured, otherwise a local demo store (same API),
 // so the app runs before Firebase is set up and while offline.
 //
-// Collections (all private to the owner):
+// Per person (users/{uid}/...):
 //   shelf/{key}       books saved to My Library
 //   progress/{key}    where you stopped in each book
 //   bookmarks/{id}    saved moments (sentence text + position)
+// Shared by the family:
 //   narrations/{key}  AI-voice narrations, article reads and read-along jobs
 
 import config from './config.js';
@@ -54,6 +55,7 @@ function localBackend() {
     async remove(c, id) { const all = read(c); delete all[id]; write(c, all); publish(c); },
     async getDoc() { return null; },
     async signIn() { userCb({ email: 'demo@xenoreads', demo: true }); },
+    async resetPassword() {},
     async signOut() { userCb(null); },
     now: () => Date.now(),
   };
@@ -73,6 +75,8 @@ async function firebaseBackend() {
     db = F.getFirestore(app);
   }
   let unsubs = [];
+  // Personal collections live under users/{uid}; narrations are shared.
+  const seg = (c) => (c === 'narrations' ? [c] : ['users', auth.currentUser?.uid || '_', c]);
   const toMs = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : v);
   const norm = (d) => {
     const o = { id: d.id, ...d.data() };
@@ -84,7 +88,7 @@ async function firebaseBackend() {
       A.onAuthStateChanged(auth, (u) => {
         unsubs.forEach((f) => f()); unsubs = [];
         if (u) {
-          COLS.forEach((c) => unsubs.push(F.onSnapshot(F.collection(db, c), (snap) => emit(c, snap.docs.map(norm)), (err) => {
+          COLS.forEach((c) => unsubs.push(F.onSnapshot(F.collection(db, ...seg(c)), (snap) => emit(c, snap.docs.map(norm)), (err) => {
             emit(c, []);
             // Signed in, but the security rules don't allow this account: lock it out.
             if (err?.code === 'permission-denied' && auth.currentUser) { denied = true; A.signOut(auth); }
@@ -93,15 +97,16 @@ async function firebaseBackend() {
         userCb(u ? { email: u.email, uid: u.uid } : null);
       });
     },
-    set: (c, id, data, merge = true) => F.setDoc(F.doc(db, c, id), data, { merge }),
-    async add(c, data) { const r = await F.addDoc(F.collection(db, c), data); return r.id; },
-    remove: (c, id) => F.deleteDoc(F.doc(db, c, id)),
+    set: (c, id, data, merge = true) => F.setDoc(F.doc(db, ...seg(c), id), data, { merge }),
+    async add(c, data) { const r = await F.addDoc(F.collection(db, ...seg(c)), data); return r.id; },
+    remove: (c, id) => F.deleteDoc(F.doc(db, ...seg(c), id)),
     async getDoc(path) {
       // Served from the on-device cache when offline (after it has been read once).
       try { const d = await F.getDoc(F.doc(db, path)); return d.exists() ? d.data() : null; }
       catch { try { const d = await F.getDocFromCache(F.doc(db, path)); return d.exists() ? d.data() : null; } catch { return null; } }
     },
     signIn: (email, pw) => A.signInWithEmailAndPassword(auth, email, pw),
+    resetPassword: (email) => A.sendPasswordResetEmail(auth, email),
     signOut: () => A.signOut(auth),
     now: () => Date.now(),
   };
@@ -119,6 +124,7 @@ export const remove = (c, id) => backend.remove(c, id);
 export const getDoc = (path) => backend.getDoc(path);
 export const isNative = () => !!window.Capacitor?.isNativePlatform?.();
 export const signIn = (e, p) => backend.signIn(e, p);
+export const resetPassword = (e) => backend.resetPassword(e);
 export const signOut = () => backend.signOut();
 
 /* Device-only settings (never synced). */
