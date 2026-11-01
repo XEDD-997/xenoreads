@@ -366,6 +366,18 @@ def run_tts_job(fb, gh, ref, d, deadline):
 _whisper = None
 
 
+def decode_16k(path):
+    """Decode any audio file to 16 kHz mono float32 with ffmpeg.
+
+    faster-whisper's own decoder breaks with newer PyAV releases, so it never touches the file.
+    """
+    import numpy as np
+
+    out = subprocess.run([ffmpeg(), "-nostdin", "-loglevel", "error", "-i", str(path), "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def run_align_job(fb, ref, d, deadline):
     """Read-along for a LibriVox recording: transcribe each section with word timings."""
     global _whisper
@@ -392,7 +404,7 @@ def run_align_job(fb, ref, d, deadline):
                 with open(mp3, "wb") as f:
                     for c in r.iter_content(1 << 16):
                         f.write(c)
-            segs, _ = _whisper.transcribe(str(mp3), language="en", word_timestamps=True, vad_filter=False, beam_size=1)
+            segs, _ = _whisper.transcribe(decode_16k(mp3), language="en", word_timestamps=True, vad_filter=False, beam_size=1)
             rows, cur, last_end = [], [], 0.0
             for seg in segs:
                 for w in seg.words or []:
