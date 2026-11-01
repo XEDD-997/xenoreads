@@ -26,9 +26,15 @@ jobs:
         id: week
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
+      - name: Write app config and rules
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+        run: node tools/write_config.mjs --rules
+
       - name: Restore catalog
         id: catalog
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: web/catalog
           key: catalog-${{ steps.week.outputs.week }}
@@ -49,11 +55,12 @@ jobs:
             echo "::warning::Catalog build failed; keeping the previous catalog."
           fi
 
-      - name: Write app config and rules
-        env:
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
-          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
-        run: node tools/write_config.mjs --rules
+      - name: Save catalog
+        if: steps.catalog.outputs.cache-hit != 'true' && hashFiles('web/catalog/index.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: web/catalog
+          key: catalog-${{ steps.week.outputs.week }}
 
       - uses: actions/setup-node@v4
         with:
