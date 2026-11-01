@@ -22,23 +22,49 @@ const audio = new Audio();
 audio.preload = 'auto';
 audio.crossOrigin = null;
 
+// GitHub serves narrated chapters as generic downloads ("application/octet-stream"), which an
+// iPhone may refuse to play. A <source> with an explicit type tells it the format up front.
+function audioType(url) {
+  if (/\.m4a(\?|$)|\.mp4(\?|$)|\.m4b(\?|$)/i.test(url)) return 'audio/mp4';
+  if (/\.mp3(\?|$)/i.test(url)) return 'audio/mpeg';
+  if (/\.ogg(\?|$)|\.opus(\?|$)/i.test(url)) return 'audio/ogg';
+  return '';
+}
+function setSource(src, original) {
+  audio.removeAttribute('src');
+  const el = document.createElement('source');
+  el.src = src;
+  const type = audioType(original || src);
+  if (type) el.type = type;
+  audio.replaceChildren(el);
+  audio.load();
+}
+
+// iPhones only let audio start right after a tap, so nothing slow happens between the tap
+// and play(): the saved position is applied once the file reports its length.
+let pendingSeek = 0;
+audio.addEventListener('loadedmetadata', () => {
+  if (pendingSeek > 0) { try { audio.currentTime = pendingSeek; } catch { /* not seekable yet */ } }
+  pendingSeek = 0;
+});
 const AudioEngine = {
   async load(ch, at = 0) {
-    const src = await offline.playableUrl(ch.url);
-    audio.src = src;
+    // Downloads exist only in the Android app; on the web, skip the cache lookup entirely.
+    const src = store.isNative() ? await offline.playableUrl(ch.url) : ch.url;
+    pendingSeek = at > 0 ? at : 0;
+    setSource(src, ch.url);
     audio.playbackRate = st.rate;
-    if (at > 0) {
-      await new Promise((r) => { const f = () => { audio.removeEventListener('loadedmetadata', f); r(); }; audio.addEventListener('loadedmetadata', f); setTimeout(r, 4000); });
-      try { audio.currentTime = at; } catch { /* not seekable yet */ }
-    }
   },
   play: () => audio.play(),
   pause: () => audio.pause(),
-  time: () => audio.currentTime || 0,
+  time: () => pendingSeek || audio.currentTime || 0,
   duration: () => (isFinite(audio.duration) && audio.duration) || st.book?.chapters[st.ci]?.dur || 0,
-  seek: (t) => { audio.currentTime = Math.max(0, Math.min(t, AudioEngine.duration() - 0.2)); },
+  seek: (t) => {
+    t = Math.max(0, Math.min(t, AudioEngine.duration() - 0.2));
+    if (audio.readyState < 1) pendingSeek = t; else audio.currentTime = t;
+  },
   rate: (r) => { audio.playbackRate = r; },
-  stop: () => { audio.pause(); audio.removeAttribute('src'); audio.load(); },
+  stop: () => { audio.pause(); audio.removeAttribute('src'); audio.replaceChildren(); audio.load(); },
 };
 
 // Device voice: one utterance per sentence, so highlighting is exact even where
@@ -115,16 +141,30 @@ async function loadChapter(ci, at = 0) {
   st.si = -1;
   if (b.kind === 'speech') {
     st.lines = ch.sentences.map((x) => ({ ...x }));
+    renderLines();
+    await engine().load(ch, at);
   } else {
     st.lines = [];
     renderLines();
-    st.lines = parseSync(await offline.getJSON(ch.sync));
+    await engine().load(ch, at);
+    loadLines(b, st.ci, ch.sync); // read-along text arrives after playback has started
   }
-  renderLines();
-  await engine().load(ch, at);
   updateMeta();
   tick(true);
   changed();
+}
+
+async function loadLines(b, ci, sync) {
+  if (!sync) return;
+  const lines = parseSync(await offline.getJSON(sync));
+  if (st.book !== b || st.ci !== ci || !lines.length) return;
+  st.lines = lines;
+  renderLines();
+  tick(true);
+  if (st.open && store.settings().view === 'read') {
+    $('#player').classList.add('read'); updateViewTool();
+    requestAnimationFrame(() => { measure(); follow(true); });
+  }
 }
 
 export async function open(book, { chapter, pos, autoplay = true, show = true } = {}) {
@@ -201,7 +241,7 @@ function onEnded() {
 audio.addEventListener('ended', onEnded);
 audio.addEventListener('pause', () => { if (st.book?.kind !== 'speech' && st.playing && !audio.ended) { st.playing = false; syncPlayState(); save(true); } });
 audio.addEventListener('play', () => { if (!st.playing) { st.playing = true; syncPlayState(); } });
-audio.addEventListener('error', () => { if (audio.getAttribute('src')) { st.playing = false; syncPlayState(); toast('Couldn’t load this chapter. Check your connection.'); } });
+audio.addEventListener('error', () => { if (audio.currentSrc) { st.playing = false; syncPlayState(); toast('Couldn’t load this chapter. Check your connection.'); } });
 
 /* ======================= Progress ======================= */
 
